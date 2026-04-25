@@ -1,76 +1,70 @@
 .intel_syntax noprefix
 .global main
 
-# =====================================================================
-# Buffers de memória
-# =====================================================================
 .section .bss
-    text_buffer: .space 65536    # Buffer para ler o arquivo .txt puro
+    text_buffer: .space 5242880  # Buffer de 5 MB para o arquivo .txt puro
     text_ptr:    .quad 0         # Ponteiro de leitura do texto
     
-    buffer_in:  .space 8192      # Buffer para a versão binária convertida
-    palette:    .space 16        
-    image_buf:  .space 8192      
-    num_str:    .space 32        
-    fd_in:      .quad 0          
-    fd_out:     .quad 0          
+    buffer_in:  .space 1048576   # Buffer de 1 MB para a versão binária convertida
+    palette:    .space 16        # Paleta de cores (16 bytes)
+    image_buf:  .space 65536     # Buffer de 64 KB para a imagem (suporta até 255x255)
+    num_str:    .space 32        # Buffer para conversão de números em string
+    fd_in:      .quad 0          # File descriptor de entrada
+    fd_out:     .quad 0          # File descriptor de saída
 
-# =====================================================================
-# Constantes
-# =====================================================================
 .section .data
     msg_bracket1: .ascii "["
     msg_bracket2: .ascii "%]\n"
     msg_newline:  .ascii "\n"
 
-# =====================================================================
-# O Programa Principal (Agora como "main" para o GCC)
-# =====================================================================
 .section .text
 main:
-  
-    # -----------------------------------------------------------------
-    # ABRIR ARQUIVOS (ARGC e ARGV via ABI do C)
-    # -----------------------------------------------------------------
-    cmp rdi, 3                  # RDI tem o argc no main()
+    # Verifica argumentos de linha de comando (argc >= 3)
+    cmp rdi, 3                  
     jl exit_error               
 
-    mov r12, rsi                # RSI tem o ponteiro para os argumentos (argv). Salvamos em r12.
+    # Salva ponteiro para argv em r12
+    mov r12, rsi                
 
-    # Abrir arquivo de ENTRADA
+    # Abre arquivo de entrada (argv[1]) em modo leitura
     mov rax, 2                  
-    mov rdi, [r12 + 8]          # argv[1]
+    mov rdi, [r12 + 8]          
     mov rsi, 0                  
     syscall
     mov [rip + fd_in], rax            
 
-    # Abrir arquivo de SAÍDA
+    # Abre arquivo de saída (argv[2]) em modo escrita/criação
     mov rax, 2                  
-    mov rdi, [r12 + 16]         # argv[2]
+    mov rdi, [r12 + 16]         
     mov rsi, 577                
     mov rdx, 0644               
     syscall
     mov [rip + fd_out], rax           
 
-  
-    # -----------------------------------------------------------------
-    # LER O ARQUIVO DE TEXTO PARA A MEMÓRIA
-    # -----------------------------------------------------------------
-    mov rax, 0                  
+    # Leitura do arquivo de texto em blocos para suportar arquivos grandes
     mov rdi, [rip + fd_in]            
     lea rsi, [rip + text_buffer]      
-    mov rdx, 65536               
+    
+read_loop:
+    mov rax, 0                  
+    mov rdx, 65536              # Lê blocos de 64 KB por vez
     syscall
 
-  
-    # -----------------------------------------------------------------
-    # PARSER: CONVERTER O TEXTO PARA BINÁRIO NO BUFFER_IN
-    # -----------------------------------------------------------------
+    cmp rax, 0                  
+    jle end_read                # Sai do loop se chegou ao fim do arquivo
+    
+    add rsi, rax                # Avança o ponteiro pelo número de bytes lidos
+    jmp read_loop
+
+end_read:
+    mov byte ptr [rsi], 0       # Adiciona terminador nulo para o parser parar com segurança
+
+    # Configura ponteiros para iniciar o parse do texto para binário
     lea rsi, [rip + text_buffer]
     mov [rip + text_ptr], rsi
     lea rbx, [rip + buffer_in]        
 
-    # 1. Ler 16 bytes da paleta
+    # Lê os 16 bytes da paleta
     mov rcx, 16
 parse_pal:
     push rcx
@@ -80,7 +74,7 @@ parse_pal:
     inc rbx
     loop parse_pal
 
-    # 2. Ler número de imagens n
+    # Lê a quantidade de imagens (n)
     call get_dec
     mov [rbx], al
     inc rbx
@@ -90,13 +84,13 @@ parse_images:
     test r15d, r15d
     jz parse_done
 
-    # 3. Ler quantidade de tuplas m
+    # Lê a quantidade de tuplas da imagem atual (m)
     call get_dec
     mov [rbx], al
     inc rbx
     mov r12d, eax               
 
-    # 4. Ler m * 3 bytes de tuplas
+    # Calcula e lê os bytes correspondentes às tuplas (m * 3)
     mov rcx, r12
     imul rcx, 3
     test rcx, rcx
@@ -115,20 +109,15 @@ parse_img_next:
     jmp parse_images
 
 parse_done:
+    # Reinicia o ponteiro para ler o buffer binário preenchido
     lea rsi, [rip + buffer_in]        
 
-  
-    # -----------------------------------------------------------------
-    # EXTRAIR A PALETA (16 Bytes)
-    # -----------------------------------------------------------------
+    # Extrai a paleta de cores para o buffer dedicado
     lea rdi, [rip + palette]
     mov ecx, 16
     rep movsb                   
 
-  
-    # -----------------------------------------------------------------
-    # QUANTIDADE DE IMAGENS
-    # -----------------------------------------------------------------
+    # Lê a quantidade total de imagens
     movzx r15, byte ptr [rsi]
     inc rsi
 
@@ -136,15 +125,12 @@ image_loop:
     test r15, r15               
     jz finalize
     
-    # QUANTIDADE DE TUPLAS (m)
+    # Lê a quantidade de tuplas da imagem atual e salva a posição base
     movzx r12, byte ptr [rsi]
     inc rsi
     mov r14, rsi                
 
-  
-    # -----------------------------------------------------------------
-    # CALCULAR LARGURA E ALTURA
-    # -----------------------------------------------------------------
+    # Calcula largura e altura máximas iterando pelas tuplas
     xor r8, r8                  
     xor r9, r9                  
     mov rcx, r12                
@@ -167,21 +153,16 @@ end_scan:
     inc r8d                     
     inc r9d                     
 
-    # -----------------------------------------------------------------
-    # CALCULAR TAXA %
-    # -----------------------------------------------------------------
+    # Calcula a taxa de compressão (%)
     mov eax, r12d               
     imul eax, 300               
     mov ecx, r8d
     imul ecx, r9d               
     xor edx, edx
     div ecx                     
-
     mov r13d, eax               
 
-    # -----------------------------------------------------------------
-    # ESCREVER CABEÇALHO NO ARQUIVO
-    # -----------------------------------------------------------------
+    # Escreve o cabeçalho de taxa no arquivo de saída
     push r8                     
     push r9
 
@@ -220,15 +201,14 @@ conv_taxa:
     pop r9                      
     pop r8                      
 
-    # -----------------------------------------------------------------
-    # DESENHAR IMAGEM RLE
-    # -----------------------------------------------------------------
+    # Limpa o buffer da imagem preenchendo com espaços em branco
     mov ecx, r8d
     imul ecx, r9d
     lea rdi, [rip + image_buf]
     mov al, ' '
     rep stosb
 
+    # Renderiza a imagem decodificando o RLE
     mov rsi, r14                
     mov rcx, r12                
 render_loop:
@@ -248,12 +228,12 @@ render_loop:
 
     imul ebx, r8d               
     add ebx, eax                
-    lea r11, [rip + image_buf]  # Carrega base da imagem de forma segura no PIE
+    lea r11, [rip + image_buf]  
     
 fill_loop:
     test edi, edi               
     jz end_fill
-    mov byte ptr [r11 + rbx], r10b  # Usa a base segura + índice para acessar
+    mov byte ptr [r11 + rbx], r10b  
     inc ebx
     dec edi
     jmp fill_loop
@@ -264,9 +244,7 @@ end_fill:
     jmp render_loop
 end_render:
 
-    # -----------------------------------------------------------------
-    # ESCREVER IMAGEM NO ARQUIVO
-    # -----------------------------------------------------------------
+    # Escreve a imagem renderizada no arquivo de saída, linha por linha
     lea rsi, [rip + image_buf]
     mov rcx, r9                 
 print_lines:
@@ -302,10 +280,12 @@ next_image:
     jmp image_loop
 
 finalize:
+    # Fecha o arquivo de entrada
     mov rax, 3                  
     mov rdi, [rip + fd_in]
     syscall
     
+    # Fecha o arquivo de saída
     mov rax, 3
     mov rdi, [rip + fd_out]
     syscall
@@ -321,10 +301,7 @@ exit_error:
     syscall
 
 
-# =====================================================================
-# TRADUÇÃO TEXTO -> BINÁRIO (Otimizados)
-# =====================================================================
-
+# Parser de Texto para Hexadecimal
 get_hex:
     mov rsi, [rip + text_ptr]
     xor eax, eax
@@ -361,9 +338,11 @@ get_hex:
     ret
 
 
+# Parser de Texto para Decimal
 get_dec:
     mov rsi, [rip + text_ptr]
     xor eax, eax
+
 .skip_ws_d:
     movzx edx, byte ptr [rsi]
     inc rsi
@@ -372,6 +351,7 @@ get_dec:
     cmp dl, 32
     jle .skip_ws_d
     dec rsi
+
 .read_d:
     movzx edx, byte ptr [rsi]
     test dl, dl
@@ -379,10 +359,13 @@ get_dec:
     cmp dl, 32
     jle .done_d
     inc rsi
+    
     sub dl, '0'
     imul eax, 10           
     add eax, edx
     jmp .read_d
+
 .done_d:
     mov [rip + text_ptr], rsi
     ret
+    
