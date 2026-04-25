@@ -1,9 +1,9 @@
 .intel_syntax noprefix
 .global main
 
-# =====================================================================
+ 
 # Buffers de memória
-# =====================================================================
+ 
 .section .bss
     text_buffer: .space 65536    # Buffer para ler o arquivo .txt puro
     text_ptr:    .quad 0         # Ponteiro de leitura do texto
@@ -15,23 +15,23 @@
     fd_in:      .quad 0          
     fd_out:     .quad 0          
 
-# =====================================================================
+ 
 # Constantes
-# =====================================================================
+ 
 .section .data
     msg_bracket1: .ascii "["
     msg_bracket2: .ascii "%]\n"
     msg_newline:  .ascii "\n"
 
-# =====================================================================
+ 
 # O Programa Principal (Agora como "main" para o GCC)
-# =====================================================================
+ 
 .section .text
 main:
   
-    # -----------------------------------------------------------------
+    
     # ABRIR ARQUIVOS (ARGC e ARGV via ABI do C)
-    # -----------------------------------------------------------------
+    
     cmp rdi, 3                  # RDI tem o argc no main()
     jl exit_error               
 
@@ -53,9 +53,9 @@ main:
     mov [rip + fd_out], rax           
 
   
-    # -----------------------------------------------------------------
+    
     # LER O ARQUIVO DE TEXTO PARA A MEMÓRIA
-    # -----------------------------------------------------------------
+    
     mov rax, 0                  
     mov rdi, [rip + fd_in]            
     lea rsi, [rip + text_buffer]      
@@ -63,9 +63,9 @@ main:
     syscall
 
   
-    # -----------------------------------------------------------------
+    
     # PARSER: CONVERTER O TEXTO PARA BINÁRIO NO BUFFER_IN
-    # -----------------------------------------------------------------
+    
     lea rsi, [rip + text_buffer]
     mov [rip + text_ptr], rsi
     lea rbx, [rip + buffer_in]        
@@ -118,17 +118,17 @@ parse_done:
     lea rsi, [rip + buffer_in]        
 
   
-    # -----------------------------------------------------------------
+    
     # EXTRAIR A PALETA (16 Bytes)
-    # -----------------------------------------------------------------
+    
     lea rdi, [rip + palette]
     mov ecx, 16
     rep movsb                   
 
   
-    # -----------------------------------------------------------------
+    
     # QUANTIDADE DE IMAGENS
-    # -----------------------------------------------------------------
+    
     movzx r15, byte ptr [rsi]
     inc rsi
 
@@ -142,9 +142,7 @@ image_loop:
     mov r14, rsi                
 
   
-    # -----------------------------------------------------------------
     # CALCULAR LARGURA E ALTURA
-    # -----------------------------------------------------------------
     xor r8, r8                  
     xor r9, r9                  
     mov rcx, r12                
@@ -167,9 +165,8 @@ end_scan:
     inc r8d                     
     inc r9d                     
 
-    # -----------------------------------------------------------------
     # CALCULAR TAXA %
-    # -----------------------------------------------------------------
+
     mov eax, r12d               
     imul eax, 300               
     mov ecx, r8d
@@ -179,9 +176,7 @@ end_scan:
 
     mov r13d, eax               
 
-    # -----------------------------------------------------------------
     # ESCREVER CABEÇALHO NO ARQUIVO
-    # -----------------------------------------------------------------
     push r8                     
     push r9
 
@@ -220,9 +215,7 @@ conv_taxa:
     pop r9                      
     pop r8                      
 
-    # -----------------------------------------------------------------
     # DESENHAR IMAGEM RLE
-    # -----------------------------------------------------------------
     mov ecx, r8d
     imul ecx, r9d
     lea rdi, [rip + image_buf]
@@ -263,10 +256,7 @@ end_fill:
     dec rcx
     jmp render_loop
 end_render:
-
-    # -----------------------------------------------------------------
     # ESCREVER IMAGEM NO ARQUIVO
-    # -----------------------------------------------------------------
     lea rsi, [rip + image_buf]
     mov rcx, r9                 
 print_lines:
@@ -320,10 +310,7 @@ exit_error:
     mov rdi, 1                  
     syscall
 
-
-# =====================================================================
 # TRADUÇÃO TEXTO -> BINÁRIO (Otimizados)
-# =====================================================================
 
 get_hex:
     mov rsi, [rip + text_ptr]
@@ -386,3 +373,4 @@ get_dec:
 .done_d:
     mov [rip + text_ptr], rsi
     ret
+    
