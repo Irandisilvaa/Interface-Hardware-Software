@@ -412,5 +412,3 @@ print_dec:
     mov rdi, [rip + fd_out]
     syscall
     ret
-
-    
